@@ -1,14 +1,15 @@
-# Firefox over VNC
+# DOOM over VNC
 #
 # VERSION               0.1
 # DOCKER-VERSION        0.2
+# REMOTE-HOST-VERSION   0.3
 
 from    ubuntu:14.04
 # make sure the package repository is up to date
 run     apt-get update
 
 # Install dependencies
-run     apt-get install -y build-essential libsdl-mixer1.2-dev libsdl-net1.2-dev git gcc x11vnc xvfb wget
+run     apt-get install -y build-essential libsdl-mixer1.2-dev libsdl-net1.2-dev git gcc x11vnc xvfb wget openssh-server && rm -rf /var/lib/apt/lists/*
 run     mkdir ~/.vnc
 
 # Setup a password
