@@ -14,7 +14,11 @@ import (
 )
 
 func runCmd(cmdstring string) {
+        log.Printf("runCmd : %v", cmdstring)
         parts := strings.Split(cmdstring, " ")
+        for i := 0; i < len(parts); i++ {
+                log.Printf("  -  %v",parts[i]);
+        }
         cmd := exec.Command(parts[0], parts[1:len(parts)]...)
         cmd.Stdout = os.Stdout
         cmd.Stderr = os.Stderr
@@ -25,7 +29,11 @@ func runCmd(cmdstring string) {
 }
 
 func outputCmd(cmdstring string) string {
+        log.Printf("outputCmd : %v", cmdstring)
         parts := strings.Split(cmdstring, " ")
+        for i := 0; i < len(parts); i++ {
+                log.Printf("  -  %v",parts[i]);
+        }
         cmd := exec.Command(parts[0], parts[1:len(parts)]...)
         cmd.Stderr = os.Stderr
         output, err := cmd.Output()
@@ -36,7 +44,11 @@ func outputCmd(cmdstring string) string {
 }
 
 func startCmd(cmdstring string) {
+        log.Printf("startCmd : %v", cmdstring)
         parts := strings.Split(cmdstring, " ")
+        for i := 0; i < len(parts); i++ {
+                log.Printf("  -  %v",parts[i]);
+        }
         cmd := exec.Command(parts[0], parts[1:len(parts)]...)
         cmd.Stdout = os.Stdout
         cmd.Stdin = os.Stdin
@@ -69,6 +81,7 @@ func checkDocker(dockerName, dockerHostString, dockerBinary, arg string) bool {
                 output := outputCmd(fmt.Sprintf("%v %v inspect -f {{.Name}} %v", dockerBinary, dockerHostString, docker_id))
                 name := strings.TrimSpace(string(output))
                 name = name[1:len(name)]
+                log.Printf("Check container name matching between %v and %v", name, dockerName)
                 if name == dockerName {
                         return true
                 }
@@ -123,7 +136,7 @@ func socketLoop(listener net.Listener, dockerBinary, dockerHostString, container
 }
 
 func main() {
-        var socketFileFormat, socketFileType, containerName, vncPort, dockerBinary, imageName, dockerfile, dockerHost, dockerHostString, sshPortString string
+        var socketFileFormat, socketFileType, socketFileString, containerName, vncPort, dockerBinary, imageName, dockerfile, dockerHost, dockerPort, dockerOptions, dockerHostString, sshPortString string
         var dockerWait int
         var buildImage, asciiDisplay bool
         flag.StringVar(&socketFileType, "socketFileType", "file", "Socket file type : FILE or SSH")
@@ -136,17 +149,20 @@ func main() {
         flag.StringVar(&imageName, "imageName", "gideonred/dockerdoom", "Name of docker image to use")
         flag.StringVar(&dockerfile, "dockerfile", ".", "Path to dockerdoom's Dockerfile")
         flag.BoolVar(&asciiDisplay, "asciiDisplay", false, "Don't use fancy vnc, throw DOOM straightup on my terminal screen")
-        flag.StringVar(&dockerHost, "dockerHost", "", "docker host")
+        flag.StringVar(&dockerHost, "dockerHost", "", "Docker host IP or FQDN")
+        flag.StringVar(&dockerPort, "dockerPort", "", "Docker host port")
+        flag.StringVar(&dockerOptions, "dockerOptions", "", "Docker options (--tls, etc...")
         flag.Parse()
 
         dockerHostString = ""
         if len(dockerHost) != 0 {
-                dockerHostString = "-H " + dockerHost
+                dockerHostString = "-H " + dockerHost + ":" + dockerPort + " " + dockerOptions
+                log.Printf("Using Docker host string : %v", dockerHostString)
         }
 
         present := checkDockerImages(imageName, dockerBinary, dockerHostString)
         if !present {
-                log.Print("Pulling image : %v", imageName)
+                log.Printf("Pulling image : %v", imageName)
                 runCmd(fmt.Sprintf("%v %v pull %v", dockerBinary, dockerHostString, imageName))
                 log.Print("Image downloaded")
         }
@@ -162,18 +178,17 @@ func main() {
                 log.Fatalf("Could not create socket file %v.\nYou could use \"rm -f %v\"", socketFile, socketFile)
         }
 
-
         sshPortString = ""
+        socketFileString = ""
         if socketFileType == "ssh" {
-                log.Print("Setting up forward Unix domain socket over SSH")
-                sshSocketRun := fmt.Sprintf("ssh -nNT -L %v:/dockerdoom.socket root@%v -p 8022", socketFile, dockerHost)
-                startCmd(sshSocketRun)
                 sshPortString = "-p 8022:22"
+        } else if socketFileType == "file" {
+                socketFileString = "-v " + socketFile + ":/dockerdoom.socket "
         }
 
         log.Print("Trying to start docker container ...")
         if !asciiDisplay {
-                dockerRun := fmt.Sprintf("%v %v run --rm=true %v -p %v:%v -v %v:/dockerdoom.socket --name=%v %v x11vnc -geometry 640x480 -forever -usepw -create", dockerBinary, dockerHostString, sshPortString, vncPort, vncPort, socketFile, containerName, imageName)
+                dockerRun := fmt.Sprintf("%v %v run --rm=true %v -p %v:%v %v--name=%v %v x11vnc -geometry 640x480 -forever -usepw -create", dockerBinary, dockerHostString, sshPortString, vncPort, vncPort, socketFileString, containerName, imageName)
                 startCmd(dockerRun)
                 log.Printf("Waiting %v seconds for \"%v\" to show in \"docker %v ps\". You can change this wait with -dockerWait.", dockerWait, containerName, dockerHostString)
                 time.Sleep(time.Duration(dockerWait) * time.Second)
@@ -185,6 +200,14 @@ func main() {
         } else {
                 dockerRun := fmt.Sprintf("%v %v run -t -i --rm=true -p %v:%v -v %v:/dockerdoom.socket --name=%v %v /bin/bash", dockerBinary, dockerHostString, vncPort, vncPort, socketFile, containerName, imageName)
                 startCmd(dockerRun)
+        }
+
+        sshPortString = ""
+        if socketFileType == "ssh" {
+                log.Print("Setting up forward Unix domain socket over SSH")
+                sshSocketRun := fmt.Sprintf("ssh -nNT -L %v:/dockerdoom.socket root@%v -p 8022", socketFile, dockerHost)
+                startCmd(sshSocketRun)
+                sshPortString = "-p 8022:22"
         }
 
         socketLoop(listener, dockerBinary, dockerHostString, containerName)
